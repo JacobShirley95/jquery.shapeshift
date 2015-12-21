@@ -58,7 +58,7 @@
     constructor: (@element, options) ->
       @options = $.extend {}, defaults, options
       @globals = {}
-      @$container = $(element)
+      @$container = $(@element)
 
       if @errorCheck()
         @init()
@@ -111,7 +111,6 @@
       $container.off("ss-rearrange").on "ss-rearrange", => @render(true)
       $container.off("ss-setTargetPosition").on "ss-setTargetPosition", => @setTargetPosition()
       $container.off("ss-destroy").on "ss-destroy", => @destroy()
-      $container.off("ss-shuffle").on "ss-shuffle", => @shuffle()
 
     # ----------------------------
     # setGlobals:
@@ -120,7 +119,6 @@
     setGlobals: ->
       # Prevent initial animation if applicable
       @globals.animated = @options.animateOnInit
-      @globals.dragging = false
 
     # ----------------------------
     # afterInit:
@@ -220,9 +218,8 @@
     # arrange them to the calculated grid
     # ----------------------------
     render: (reparse = false, trigger_drop_finished) ->
-      @setActiveChildren() if reparse
       @setGridColumns()
-      @arrange(false, trigger_drop_finished)
+      @arrange(reparse, trigger_drop_finished)
 
     # ----------------------------
     # setGrid:
@@ -245,17 +242,10 @@
         columns = minColumns
       globals.columns = columns
 
-      # Columns cannot exceed children span
+      # Columns cannot exceed children
       children_count = @parsedChildren.length
       if columns > children_count
-        actual_columns = 0
-        for i in [0...@parsedChildren.length]
-          colspan = @parsedChildren[i].colspan
-
-          if colspan + actual_columns <= columns
-            actual_columns += colspan
-
-        columns = actual_columns
+        columns = children_count
 
       # Calculate the child offset from the left
       globals.child_offset = padding_x
@@ -471,7 +461,7 @@
       clone_class = options.cloneClass
 
       $selected = $placeholder = $clone = selected_offset_y = selected_offset_x = null
-      drag_timeout = false
+      dragging = false
 
       if options.enableDrag
         $container.children("." + active_class).filter(options.dragWhitelist).draggable
@@ -480,30 +470,28 @@
           handle: options.handle
           zIndex: 9999
 
-          start: (e, ui) =>
-            @globals.dragging = true
-
+          start: (e, ui) ->
             # Set $selected globals
             $selected = $(e.target)
 
             if drag_clone
-              $clone = $selected.clone(false, false).insertBefore($selected).addClass(clone_class)
+              $clone = $selected.clone(true).insertBefore($selected).addClass(clone_class)
 
             $selected.addClass(dragged_class)
 
             # Create Placeholder
             selected_tag = $selected.prop("tagName")
-            $placeholder = $("<#{selected_tag} class='#{placeholder_class}' style='height: #{$selected.height()}px; width: #{$selected.width()}px'></#{selected_tag}>")
+            $placeholder = $("<#{selected_tag} class='#{placeholder_class}' style='height: #{$selected.height()}px; width: #{$selected.width()}'></#{selected_tag}>")
             
             # Set current container
             $selected.parent().addClass(original_container_class).addClass(current_container_class)
 
             # For manually centering the element with respect to mouse position
-            selected_offset_y = $selected.outerHeight() / 2
-            selected_offset_x = $selected.outerWidth() / 2
+            selected_offset_y = e.pageY - $selected.offset().top
+            selected_offset_x = e.pageX - $selected.offset().left
 
           drag: (e, ui) =>
-            if !drag_timeout and !(drag_clone and delete_clone and $("." + current_container_class)[0] is $("." + original_container_class)[0])
+            if !dragging and !(drag_clone and delete_clone and $("." + current_container_class)[0] is $("." + original_container_class)[0])
               # Append placeholder to container
               $placeholder.remove().appendTo("." + current_container_class)
 
@@ -511,18 +499,16 @@
               $("." + current_container_class).trigger("ss-setTargetPosition")
 
               # Disallow dragging from occurring too much
-              drag_timeout = true
+              dragging = true
               window.setTimeout ( ->
-                drag_timeout = false
+                dragging = false
               ), drag_rate
 
             # Manually center the element with respect to mouse position
-            ui.position.left = e.pageX - $selected.parent().offset().left - selected_offset_x;
-            ui.position.top = e.pageY - $selected.parent().offset().top - selected_offset_y;
+            ui.position.left = e.pageX - $selected.parent().offset().left - selected_offset_x
+            ui.position.top = e.pageY - $selected.parent().offset().top - selected_offset_y
 
-          stop: =>
-            @globals.dragging = false
-
+          stop: ->
             $original_container = $("." + original_container_class)
             $current_container = $("." + current_container_class)
             $previous_container = $("." + previous_container_class)
@@ -674,49 +660,19 @@
           , animation_speed / 3
 
     # ----------------------------
-    # shuffle:
-    # Randomly sort the child elements
-    # ----------------------------
-    shuffle: ->
-      calculateShuffled = (container, activeClass) ->
-        shuffle = (arr) ->
-          j = undefined
-          x = undefined
-          i = arr.length
-
-          while i
-            j = parseInt(Math.random() * i)
-            x = arr[--i]
-            arr[i] = arr[j]
-            arr[j] = x
-          arr
-        return container.each(->
-          items = container.find("." + activeClass).filter(":visible")
-          (if (items.length) then container.html(shuffle(items)) else this)
-        )
-
-      unless @globals.dragging
-        calculateShuffled @$container, @options.activeClass
-        @enableFeatures()
-        @$container.trigger "ss-rearrange"
-
-    # ----------------------------
     # lowestCol:
     # Helper
     # Returns the index position of the
     # array column with the lowest number
     # ----------------------------
     lowestCol: (array, offset = 0) ->
-      length = array.length
-      augmented_array = []
-      
-      for i in [0...length]
-        augmented_array.push [array[i], i]
+      augmented_array = array.map (val, index) -> [val, index]
 
       augmented_array.sort (a, b) ->
           ret = a[0] - b[0]
           ret = a[1] - b[1] if ret is 0
           ret
+
       augmented_array[offset][1]
 
     # ----------------------------
@@ -753,7 +709,7 @@
   $.fn[pluginName] = (options) ->
     @each ->
       # Destroy any old resize events
-      old_class = $(@).attr("class")?.match(/shapeshifted_container_\w+/)?[0]
+      old_class = $(@).attr("class").match(/shapeshifted_container_\w+/)?[0]
       if old_class
         bound_indentifier = "resize." + old_class
         $(window).off(bound_indentifier)
