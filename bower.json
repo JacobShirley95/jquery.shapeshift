@@ -39,7 +39,7 @@
   "download": "https://github.com/McPants/jquery.shapeshift",
   "dependencies": {
     "jquery": ">=1.9.0",
-    "jquery.touch-punch": "*"
+    "jquery-ui-touch-punch": "*"
   },
   "repository": {
     "type": "git",
